@@ -1,0 +1,6 @@
+{
+  "app_id": "cli_xxxxxxxxxxxxxxxx",
+  "app_secret": "your_app_secret_here",
+  "base_url": "https://open.feishu.cn",
+  "app_type": "internal"
+}
