@@ -3,7 +3,7 @@
 set -euo pipefail
 
 LARK="npx --yes @larksuite/cli@latest"
-ZHIPU_KEY="${ZHIPU_API_KEY:-b011c3aefd0141f5a73d66d8e654eda8.QjN0qdRV0mGcYdp3}"
+ZHIPU_KEY="${ZHIPU_API_KEY:?请设置环境变量 ZHIPU_API_KEY（见 .env.example）}"
 ZHIPU_URL="https://open.bigmodel.cn/api/paas/v4/chat/completions"
 ZHIPU_MODEL="${ZHIPU_MODEL:-glm-4-flash}"
 

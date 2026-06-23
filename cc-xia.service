@@ -9,8 +9,7 @@ WorkingDirectory=/opt/cc-xia
 ExecStart=/bin/bash /opt/cc-xia/bot.sh
 Restart=always
 RestartSec=10
-Environment=ZHIPU_API_KEY=b011c3aefd0141f5a73d66d8e654eda8.QjN0qdRV0mGcYdp3
-Environment=ZHIPU_MODEL=glm-4-flash
+EnvironmentFile=/opt/cc-xia/.env
 StandardOutput=journal
 StandardError=journal
 
