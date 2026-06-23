@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# feishu CLI — config init / auth login / connectivity check
+set -euo pipefail
+
+FEISHU_DIR="${FEISHU_DIR:-.feishu}"
+CONFIG_FILE="$FEISHU_DIR/config.json"
+CRED_FILE="$FEISHU_DIR/credentials.json"
+BASE_URL="https://open.feishu.cn"
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+_json_get() { grep -o "\"$1\": *\"[^\"]*\"" "$2" 2>/dev/null | head -1 | cut -d'"' -f4; }
+_die()       { echo "ERROR: $*" >&2; exit 1; }
+_ok()        { echo "[OK] $*"; }
+_info()      { echo "     $*"; }
+
+# ── feishu config init ─────────────────────────────────────────────────────────
+cmd_config_init() {
+  mkdir -p "$FEISHU_DIR"
+
+  if [[ -f "$CONFIG_FILE" ]]; then
+    read -rp "Config already exists. Overwrite? [y/N] " ans
+    [[ "${ans,,}" == "y" ]] || { echo "Aborted."; return 0; }
+  fi
+
+  read -rp "APP ID     : " app_id
+  read -rsp "APP Secret : " app_secret; echo
+
+  cat > "$CONFIG_FILE" <<EOF
+{
+  "app_id": "$app_id",
+  "app_secret": "$app_secret",
+  "base_url": "$BASE_URL",
+  "app_type": "internal"
+}
+EOF
+  chmod 600 "$CONFIG_FILE"
+  _ok "Config saved to $CONFIG_FILE (mode 600)"
+}
+
+# ── feishu connectivity check ──────────────────────────────────────────────────
+cmd_check() {
+  _info "Resolving open.feishu.cn …"
+  if ! curl -sf --connect-timeout 8 -o /dev/null "$BASE_URL"; then
+    _die "Cannot reach $BASE_URL"
+  fi
+  _ok "Network connectivity to $BASE_URL is good"
+}
+
+# ── feishu auth login ──────────────────────────────────────────────────────────
+cmd_auth_login() {
+  [[ -f "$CONFIG_FILE" ]] || _die "No config found. Run: feishu config init"
+
+  APP_ID=$(_json_get app_id "$CONFIG_FILE")
+  APP_SECRET=$(_json_get app_secret "$CONFIG_FILE")
+  [[ -n "$APP_ID" && -n "$APP_SECRET" ]] || _die "Config is missing app_id or app_secret"
+
+  _info "Fetching tenant_access_token for $APP_ID …"
+  RESP=$(curl -sf --connect-timeout 10 -X POST \
+    "$BASE_URL/open-apis/auth/v3/tenant_access_token/internal" \
+    -H "Content-Type: application/json" \
+    -d "{\"app_id\":\"$APP_ID\",\"app_secret\":\"$APP_SECRET\"}")
+
+  CODE=$(echo "$RESP" | grep -o '"code":[0-9]*' | cut -d: -f2)
+  [[ "$CODE" == "0" ]] || _die "Auth failed: $RESP"
+
+  TOKEN=$(echo "$RESP" | grep -o '"tenant_access_token":"[^"]*"' | cut -d'"' -f4)
+  EXPIRE=$(echo "$RESP" | grep -o '"expire":[0-9]*' | cut -d: -f2)
+  NOW=$(date -u +%s)
+  EXP_AT=$((NOW + EXPIRE))
+
+  cat > "$CRED_FILE" <<EOF
+{
+  "app_id": "$APP_ID",
+  "tenant_access_token": "$TOKEN",
+  "expires_in": $EXPIRE,
+  "obtained_at": "$(date -u -d "@$NOW"  +"%Y-%m-%dT%H:%M:%SZ")",
+  "expires_at":  "$(date -u -d "@$EXP_AT" +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+  chmod 600 "$CRED_FILE"
+  _ok "Logged in. Token cached to $CRED_FILE"
+  _info "Expires in ${EXPIRE}s ($(date -u -d "@$EXP_AT" +"%Y-%m-%dT%H:%M:%SZ"))"
+}
+
+# ── feishu auth status ─────────────────────────────────────────────────────────
+cmd_auth_status() {
+  [[ -f "$CRED_FILE" ]] || _die "Not logged in. Run: feishu auth login"
+  TOKEN=$(_json_get tenant_access_token "$CRED_FILE")
+  EXPIRES_AT=$(_json_get expires_at "$CRED_FILE")
+  NOW=$(date -u +%s)
+  EXP=$(date -u -d "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
+  if (( EXP > NOW )); then
+    REMAINING=$(( EXP - NOW ))
+    _ok "Token valid — expires at $EXPIRES_AT (${REMAINING}s remaining)"
+  else
+    echo "WARN: Token expired at $EXPIRES_AT — run: feishu auth login"
+  fi
+}
+
+# ── dispatch ───────────────────────────────────────────────────────────────────
+usage() {
+  cat <<EOF
+Usage: feishu <command> [subcommand]
+
+Commands:
+  check              Test network connectivity to open.feishu.cn
+  config init        Interactively create/overwrite .feishu/config.json
+  auth login         Fetch tenant_access_token and cache to .feishu/credentials.json
+  auth status        Show cached token validity
+
+Environment:
+  FEISHU_DIR         Config directory (default: .feishu)
+EOF
+}
+
+case "${1:-}" in
+  check)            cmd_check ;;
+  config)
+    case "${2:-}" in
+      init)         cmd_config_init ;;
+      *)            usage; exit 1 ;;
+    esac ;;
+  auth)
+    case "${2:-}" in
+      login)        cmd_auth_login ;;
+      status)       cmd_auth_status ;;
+      *)            usage; exit 1 ;;
+    esac ;;
+  *)                usage; exit 1 ;;
+esac
