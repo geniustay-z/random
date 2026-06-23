@@ -1,3 +1,4 @@
 # Feishu local config & credentials (contain secrets / tokens)
 .feishu/config.json
 .feishu/credentials.json
+lark-auth-qr.png
